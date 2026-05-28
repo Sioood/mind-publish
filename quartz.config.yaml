@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=./quartz/plugins/quartz-plugins.schema.json
 configuration:
-  pageTitle: Quartz 5
+  pageTitle: Siod Mind
   pageTitleSuffix: ""
   enableSPA: true
   enablePopovers: true
@@ -18,10 +18,9 @@ configuration:
     fontOrigin: googleFonts
     cdnCaching: true
     typography:
-      title: Instrument Serif
-      header: Instrument Serif
-      body: Source Sans Pro
-      code: IBM Plex Mono
+      header: Inter
+      body: Inter
+      code: Inter
     colors:
       lightMode:
         light: "#faf8f8"

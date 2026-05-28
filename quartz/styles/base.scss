@@ -10,6 +10,9 @@ html {
   overflow-x: hidden;
   width: 100vw;
 
+  // The default config seems to not work ?!
+  font-family: Inter;
+
   @media all and ($mobile) {
     scroll-padding-top: 4rem;
   }
