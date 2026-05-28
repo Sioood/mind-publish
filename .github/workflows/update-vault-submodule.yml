@@ -1,0 +1,36 @@
+name: Update vault submodule
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+
+      - name: Bump obsidian-sync to latest default branch
+        run: |
+          git submodule update --init --recursive
+          git submodule update --remote content
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet content; then
+            echo "Submodule already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add content
+          git commit -m "chore: bump obsidian-sync submodule"
+          git push
