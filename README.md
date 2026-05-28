@@ -80,7 +80,9 @@ Le vault **obsidian-sync** est privé. Le `GITHUB_TOKEN` de mind-publish **ne pe
 | 2 | [obsidian-sync → Settings → Deploy keys](https://github.com/Sioood/obsidian-sync/settings/keys) | Coller le contenu de `obsidian-sync-deploy.pub`, titre ex. `mind-publish CI`, **lecture seule** |
 | 3 | [mind-publish → Settings → Secrets → Actions](https://github.com/Sioood/mind-publish/settings/secrets/actions) | Nouveau secret `SUBMODULE_DEPLOY_KEY` = contenu complet de `obsidian-sync-deploy` (clé **privée**) |
 
-Les workflows `deploy.yml` et `update-vault-submodule.yml` utilisent ce secret pour `actions/checkout` avec `submodules: recursive`.
+Les workflows `deploy.yml` et `update-vault-submodule.yml` utilisent ce secret pour `actions/checkout` avec `submodules: recursive` (clone **obsidian-sync** uniquement).
+
+Le push du pointeur submodule vers **mind-publish** utilise le `GITHUB_TOKEN` du workflow (`permissions: contents: write`), pas la deploy key. **Ne pas** activer l’écriture sur la deploy key d’obsidian-sync pour corriger un push : la clé n’a pas accès à mind-publish.
 
 ### 4. GitHub Pages
 
@@ -191,7 +193,11 @@ git submodule update --init --recursive
 ### Build CI échoue au checkout / submodule
 
 - Vérifier que `SUBMODULE_DEPLOY_KEY` est défini sur mind-publish.
-- Vérifier que la deploy key publique est bien sur obsidian-sync.
+- Vérifier que la deploy key publique est bien sur obsidian-sync (lecture seule suffit).
+
+### `Permission to Sioood/mind-publish.git denied to deploy key` (update submodule)
+
+Le commit local réussit mais le `git push` échoue : `checkout` avec `ssh-key` configure aussi `origin` sur la deploy key d’obsidian-sync. Le workflow doit repasser `origin` en HTTPS + `GITHUB_TOKEN` avant le push (déjà corrigé dans `update-vault-submodule.yml`). Vérifier aussi que le workflow a `permissions: contents: write` et que la branche `v5` n’a pas de règle bloquant `github-actions[bot]`.
 
 ### Une note n’apparaît pas sur le site
 

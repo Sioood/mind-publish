@@ -27,6 +27,8 @@ jobs:
           git submodule update --remote content
 
       - name: Commit and push if changed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if git diff --quiet content; then
             echo "Submodule already up to date"
@@ -36,4 +38,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add content
           git commit -m "chore: bump obsidian-sync submodule"
-          git push
+          # checkout with ssh-key uses the obsidian-sync deploy key for origin too;
+          # push must use GITHUB_TOKEN on mind-publish, not the submodule deploy key
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/Sioood/mind-publish.git"
+          git push origin HEAD:v5
