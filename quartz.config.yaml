@@ -249,7 +249,17 @@ plugins:
         - description
         - tags
         - aliases
-      excludedProperties: []
+        - title
+        - author
+        - date
+        - publisher/collection
+        - isbn
+        - start
+        - end
+        - status
+        - "date created"
+        - "date modified"
+      excludedProperties: ["publish"]
       hidePropertiesView: false
       delimiters: ---
       language: yaml
