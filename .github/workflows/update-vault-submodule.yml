@@ -2,6 +2,9 @@ name: Update vault submodule
 
 on:
   schedule:
+    # Periodically watch the private content vault; if it moved, bump the
+    # pointer, push it, then explicitly dispatch the Pages deploy workflow
+    # (GITHUB_TOKEN pushes do not fire `on: push` workflows).
     - cron: "0 6 * * *"
   workflow_dispatch:
 
@@ -10,26 +13,37 @@ env:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
+      # Check out this (public) repo with the built-in GITHUB_TOKEN.
+      # Do NOT pass `ssh-key` here: the deploy key only authenticates the
+      # private submodule, and checkout would also use it to fetch this repo.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          submodules: recursive
-          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+          submodules: false
 
       - name: Bump obsidian-sync to latest default branch
+        env:
+          SUBMODULE_DEPLOY_KEY: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
         run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SUBMODULE_DEPLOY_KEY" > ~/.ssh/id_submodule
+          chmod 600 ~/.ssh/id_submodule
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/id_submodule -o IdentitiesOnly=yes"
           git submodule update --init --recursive
           git submodule update --remote content
 
       - name: Commit and push if changed
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           if git diff --quiet content; then
             echo "Submodule already up to date"
             exit 0
@@ -38,7 +52,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add content
           git commit -m "chore: bump obsidian-sync submodule"
-          # checkout with ssh-key uses the obsidian-sync deploy key for origin too;
-          # push must use GITHUB_TOKEN on mind-publish, not the submodule deploy key
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/Sioood/mind-publish.git"
           git push origin HEAD:v5
+          # `on: push` workflows do not fire for GITHUB_TOKEN pushes, so kick
+          # off the Pages deploy for the newly pushed pointer explicitly.
+          gh workflow run deploy.yml --ref v5

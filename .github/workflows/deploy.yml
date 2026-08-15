@@ -22,11 +22,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Check out this (public) repo with the built-in GITHUB_TOKEN.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          submodules: recursive
-          ssh-key: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+          submodules: false
+
+      - name: Checkout private content submodule
+        env:
+          SUBMODULE_DEPLOY_KEY: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SUBMODULE_DEPLOY_KEY" > ~/.ssh/id_submodule
+          chmod 600 ~/.ssh/id_submodule
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/id_submodule -o IdentitiesOnly=yes" \
+            git submodule update --init --recursive
 
       - uses: actions/setup-node@v6
         with:
