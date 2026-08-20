@@ -22,7 +22,7 @@ jobs:
       # Check out this (public) repo with the built-in GITHUB_TOKEN.
       # Do NOT pass `ssh-key` here: the deploy key only authenticates the
       # private submodule, and checkout would also use it to fetch this repo.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           submodules: false
