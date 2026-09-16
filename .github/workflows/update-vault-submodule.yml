@@ -2,11 +2,12 @@ name: Update vault submodule
 
 on:
   schedule:
-    # Periodically watch the private content vault; if it moved, bump the
-    # pointer, push it, then explicitly dispatch the Pages deploy workflow
-    # (GITHUB_TOKEN pushes do not fire `on: push` workflows).
+    # Daily safety net. For a near-instant deploy after a vault change, the
+    # obsidian-sync repo can POST a `vault-updated` repository_dispatch event.
     - cron: "0 6 * * *"
   workflow_dispatch:
+  repository_dispatch:
+    types: [vault-updated]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -14,6 +15,10 @@ env:
 permissions:
   contents: write
   actions: write
+
+concurrency:
+  group: update-vault-submodule
+  cancel-in-progress: false
 
 jobs:
   bump:
@@ -42,10 +47,12 @@ jobs:
           git submodule update --remote content
 
       - name: Commit and push if changed
+        id: bump
         run: |
           set -euo pipefail
-          if git diff --quiet content; then
+          if git diff --quiet -- content; then
             echo "Submodule already up to date"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -53,6 +60,13 @@ jobs:
           git add content
           git commit -m "chore: bump obsidian-sync submodule"
           git push origin HEAD:v5
-          # `on: push` workflows do not fire for GITHUB_TOKEN pushes, so kick
-          # off the Pages deploy for the newly pushed pointer explicitly.
-          gh workflow run deploy.yml --ref v5
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # GITHUB_TOKEN pushes do not fire `on: push` workflows, so the Pages
+      # build is dispatched explicitly instead of relying on the push trigger.
+      # GH_TOKEN is required: without it the `gh` CLI refuses to run in Actions.
+      - name: Deploy the updated site
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref v5
