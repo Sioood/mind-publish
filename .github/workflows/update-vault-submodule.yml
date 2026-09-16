@@ -32,41 +32,69 @@ jobs:
           fetch-depth: 0
           submodules: false
 
-      - name: Bump obsidian-sync to latest default branch
+      # Bump and push in one step: v5 can advance while this job is running
+      # (another push, or a re-run of an older run, whose checkout is pinned to
+      # that older commit). So the commit is always rebuilt on top of the
+      # current tip of v5 and the push retried, instead of failing as a
+      # non-fast-forward.
+      - name: Bump obsidian-sync and push the new pointer
+        id: bump
         env:
           SUBMODULE_DEPLOY_KEY: ${{ secrets.SUBMODULE_DEPLOY_KEY }}
         run: |
           set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$SUBMODULE_DEPLOY_KEY" > ~/.ssh/id_submodule
           chmod 600 ~/.ssh/id_submodule
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/id_submodule -o IdentitiesOnly=yes"
-          git submodule update --init --recursive
-          git submodule update --remote content
 
-      - name: Commit and push if changed
-        id: bump
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- content; then
-            echo "Submodule already up to date"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add content
-          git commit -m "chore: bump obsidian-sync submodule"
-          git push origin HEAD:v5
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          for attempt in 1 2 3; do
+            echo "::group::bump attempt $attempt"
+            # Start from the current tip of v5 rather than whatever this run
+            # originally checked out.
+            git fetch origin v5
+            git checkout --detach FETCH_HEAD
+
+            # Fetch the vault's default branch and check it out in content/.
+            git submodule update --init --remote --recursive content
+
+            if git diff --quiet -- content; then
+              echo "Submodule already up to date"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "::endgroup::"
+              exit 0
+            fi
+
+            git add content
+            git commit -m "chore: bump obsidian-sync submodule"
+
+            if git push origin HEAD:v5; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "::endgroup::"
+              exit 0
+            fi
+
+            echo "::endgroup::"
+            echo "::warning::v5 moved while this job was running, retrying against the latest tip"
+            sleep 5
+          done
+
+          echo "::error::could not push the submodule bump after 3 attempts"
+          exit 1
 
       # GITHUB_TOKEN pushes do not fire `on: push` workflows, so the Pages
       # build is dispatched explicitly instead of relying on the push trigger.
       # GH_TOKEN is required: without it the `gh` CLI refuses to run in Actions.
+      # Scheduled runs only redeploy when the pointer moved; an explicit run
+      # (manual or vault-updated) always republishes the current vault.
       - name: Deploy the updated site
-        if: steps.bump.outputs.changed == 'true'
+        if: steps.bump.outputs.changed == 'true' || github.event_name != 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref v5
