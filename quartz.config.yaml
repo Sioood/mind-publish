@@ -148,8 +148,18 @@ plugins:
     enabled: true
   - source: github:quartz-community/content-page
     enabled: true
+  # Auto-generates a TOC/index page for every folder (e.g. /mind/notes/),
+  # listing the notes and subfolders it contains. You never need to add an
+  # index.md by hand for a folder page to exist.
   - source: github:quartz-community/folder-page
     enabled: true
+    options:
+      # "2 elements under this folder" line
+      showFolderCount: true
+      # link subfolders from the parent folder's listing
+      showSubfolders: true
+      # folder pages are titled with the plain folder name (no "Folder: " prefix)
+      prefixFolders: false
   - source: github:quartz-community/tag-page
     enabled: true
   - source: github:quartz-community/explorer
@@ -298,6 +308,9 @@ layout:
     folder:
       exclude:
         - reader-mode
+        # Folder pages are generated listings: the frontmatter property table
+        # (title / date created / date modified) is noise there.
+        - note-properties
       positions:
         right: []
     tag:
