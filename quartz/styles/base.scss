@@ -10,9 +10,6 @@ html {
   overflow-x: hidden;
   width: 100vw;
 
-  // The default config seems to not work ?!
-  font-family: Inter;
-
   @media all and ($mobile) {
     scroll-padding-top: 4rem;
   }
@@ -551,6 +548,7 @@ code {
   font-size: 0.9em;
   color: var(--dark);
   font-family: var(--codeFont);
+  font-variant-ligatures: none;
   border-radius: 5px;
   padding: 0.1rem 0.2rem;
   background: var(--lightgray);

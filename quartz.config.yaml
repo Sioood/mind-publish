@@ -20,7 +20,9 @@ configuration:
     typography:
       header: Inter
       body: Inter
-      code: Inter
+      # Code needs a real monospace face: Inter is proportional, so code blocks
+      # were rendering in a proportional font. JetBrains Mono pairs with Inter.
+      code: JetBrains Mono
     colors:
       lightMode:
         light: "#faf8f8"
@@ -110,6 +112,17 @@ plugins:
   - source: github:quartz-community/roam
     enabled: false
     order: 92
+  # Bridges Quartz's --headerFont/--bodyFont/--codeFont with the theme heading
+  # variables (--h1-font…--h6-font, --font-text, --font-monospace) and keeps the
+  # fonts declared above authoritative.
+  - source: "@quartz-community/quartz-fonts"
+    enabled: true
+    options:
+      useThemeFonts: true
+      fontOrigin: googleFonts
+      header: Inter
+      body: Inter
+      code: JetBrains Mono
   - source: github:quartz-community/remove-draft
     enabled: true
   - source: github:quartz-community/explicit-publish
@@ -237,6 +250,11 @@ plugins:
       links:
         GitHub: https://github.com/jackyzha0/quartz
         Discord Community: https://discord.gg/cRFFHYye7t
+    # Newer Quartz places the footer through an explicit "footer" layout slot
+    # instead of special-casing the footer plugin inside the config loader.
+    layout:
+      position: footer
+      priority: 50
   - source: github:quartz-community/recent-notes
     enabled: false
   - source: github:quartz-community/spacer
