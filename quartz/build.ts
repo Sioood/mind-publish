@@ -24,7 +24,7 @@ import { randomIdNonSecure } from "./util/random"
 import { ChangeEvent } from "./plugins/types"
 import { minimatch } from "minimatch"
 
-const README_INDEX_PATH = "README.md" as FilePath
+const README_FILENAME = "README.md"
 const ROOT_INDEX_PATH = "index.md" as FilePath
 
 function reportSlugCollisions(content: ProcessedContent[]): void {
@@ -85,16 +85,18 @@ async function buildQuartz(argv: Argv, mut: Mutex, clientRefresh: () => void) {
 
   perf.addEvent("glob")
   const allFiles = await glob("**/*.*", argv.directory, cfg.configuration.ignorePatterns)
-  const useReadmeIndex = existsSync(README_INDEX_PATH)
+  const readmePath = joinSegments(argv.directory, README_FILENAME) as FilePath
+  // In this repository the vault lives in `content`; the repository README is
+  // documentation and must never become the published home page.
+  const useReadmeIndex = argv.directory !== "." && allFiles.includes(README_FILENAME as FilePath)
   const markdownPaths = allFiles
     .filter((fp) => {
       if (!fp.endsWith(".md")) return false
       if (!useReadmeIndex) return true
 
-      // The project README is always the canonical root page. Ignore a vault
-      // index (and README when building from the repository root) so the two
-      // sources cannot emit competing pages for the `index` slug.
-      return fp !== ROOT_INDEX_PATH && !(argv.directory === "." && fp === README_INDEX_PATH)
+      // The content README is the canonical root page. Ignore a vault index so
+      // the two sources cannot emit competing pages for the `index` slug.
+      return fp !== ROOT_INDEX_PATH && fp !== README_FILENAME
     })
     .sort()
   console.log(
@@ -102,10 +104,13 @@ async function buildQuartz(argv: Argv, mut: Mutex, clientRefresh: () => void) {
   )
 
   const filePaths = markdownPaths.map((fp) => joinSegments(argv.directory, fp) as FilePath)
-  if (useReadmeIndex) filePaths.push(README_INDEX_PATH)
+  if (useReadmeIndex) filePaths.push(readmePath)
 
   ctx.allFiles = useReadmeIndex
-    ? [...allFiles.filter((fp) => fp !== ROOT_INDEX_PATH), ROOT_INDEX_PATH]
+    ? [
+        ...allFiles.filter((fp) => fp !== ROOT_INDEX_PATH && fp !== README_FILENAME),
+        ROOT_INDEX_PATH,
+      ]
     : allFiles
   ctx.allSlugs = ctx.allFiles.map((fp) => slugifyFilePath(fp as FilePath))
 
@@ -181,11 +186,9 @@ async function startWatching(
     persistent: true,
     ignoreInitial: true,
   }
-  const useReadmeIndex = existsSync(README_INDEX_PATH)
+  const readmePath = joinSegments(argv.directory, README_FILENAME) as FilePath
+  const useReadmeIndex = argv.directory !== "." && existsSync(readmePath)
   const watchers = [chokidar.watch(".", { ...watcherOptions, cwd: argv.directory })]
-  if (useReadmeIndex) {
-    watchers.push(chokidar.watch(README_INDEX_PATH, { ...watcherOptions, cwd: "." }))
-  }
 
   const changes: ChangeEvent[] = []
   let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
@@ -198,9 +201,7 @@ async function startWatching(
       })
     }, 100)
   }
-  const isCanonicalReadmeSource = (fp: string) =>
-    useReadmeIndex &&
-    (fp === ROOT_INDEX_PATH || (argv.directory === "." && fp === README_INDEX_PATH))
+  const isCanonicalReadmeSource = (fp: string) => useReadmeIndex && fp === ROOT_INDEX_PATH
 
   for (const [watcherIndex, watcher] of watchers.entries()) {
     const recordChange = (rawPath: string, type: ChangeEvent["type"]) => {
@@ -251,11 +252,7 @@ async function rebuild(changes: ChangeEvent[], clientRefresh: () => void, buildD
     for (const [fp, type] of Object.entries(changesSinceLastBuild)) {
       if (type === "delete" || path.extname(fp) !== ".md") continue
       const relativePath = toPosixPath(fp)
-      const fullPath =
-        path.resolve(argv.directory, relativePath) === path.resolve(README_INDEX_PATH)
-          ? README_INDEX_PATH
-          : (joinSegments(argv.directory, relativePath) as FilePath)
-      pathsToParse.push(fullPath)
+      pathsToParse.push(joinSegments(argv.directory, relativePath) as FilePath)
     }
 
     const parsed = await parseMarkdown(ctx, pathsToParse)
