@@ -3,6 +3,7 @@ sourceMapSupport.install(options)
 import path from "path"
 import { PerfTimer } from "./util/perf"
 import { rm } from "fs/promises"
+import { existsSync } from "fs"
 import { GlobbyFilterFunction, isGitIgnored } from "globby"
 import { styleText } from "util"
 import { parseMarkdown } from "./processors/parse"
@@ -22,6 +23,9 @@ import { getStaticResourcesFromPlugins } from "./plugins"
 import { randomIdNonSecure } from "./util/random"
 import { ChangeEvent } from "./plugins/types"
 import { minimatch } from "minimatch"
+
+const README_INDEX_PATH = "README.md" as FilePath
+const ROOT_INDEX_PATH = "index.md" as FilePath
 
 function reportSlugCollisions(content: ProcessedContent[]): void {
   const collisions = detectSlugCollisions(content)
@@ -81,14 +85,29 @@ async function buildQuartz(argv: Argv, mut: Mutex, clientRefresh: () => void) {
 
   perf.addEvent("glob")
   const allFiles = await glob("**/*.*", argv.directory, cfg.configuration.ignorePatterns)
-  const markdownPaths = allFiles.filter((fp) => fp.endsWith(".md")).sort()
+  const useReadmeIndex = existsSync(README_INDEX_PATH)
+  const markdownPaths = allFiles
+    .filter((fp) => {
+      if (!fp.endsWith(".md")) return false
+      if (!useReadmeIndex) return true
+
+      // The project README is always the canonical root page. Ignore a vault
+      // index (and README when building from the repository root) so the two
+      // sources cannot emit competing pages for the `index` slug.
+      return fp !== ROOT_INDEX_PATH && !(argv.directory === "." && fp === README_INDEX_PATH)
+    })
+    .sort()
   console.log(
-    `Found ${markdownPaths.length} input files from \`${argv.directory}\` in ${perf.timeSince("glob")}`,
+    `Found ${markdownPaths.length + (useReadmeIndex ? 1 : 0)} input files from \`${argv.directory}\` in ${perf.timeSince("glob")}`,
   )
 
   const filePaths = markdownPaths.map((fp) => joinSegments(argv.directory, fp) as FilePath)
-  ctx.allFiles = allFiles
-  ctx.allSlugs = allFiles.map((fp) => slugifyFilePath(fp as FilePath))
+  if (useReadmeIndex) filePaths.push(README_INDEX_PATH)
+
+  ctx.allFiles = useReadmeIndex
+    ? [...allFiles.filter((fp) => fp !== ROOT_INDEX_PATH), ROOT_INDEX_PATH]
+    : allFiles
+  ctx.allSlugs = ctx.allFiles.map((fp) => slugifyFilePath(fp as FilePath))
 
   const parsedFiles = await parseMarkdown(ctx, filePaths)
   reportSlugCollisions(parsedFiles)
@@ -157,12 +176,16 @@ async function startWatching(
     lastBuildMs: 0,
   }
 
-  const watcher = chokidar.watch(".", {
+  const watcherOptions = {
     awaitWriteFinish: { stabilityThreshold: 250 },
     persistent: true,
-    cwd: argv.directory,
     ignoreInitial: true,
-  })
+  }
+  const useReadmeIndex = existsSync(README_INDEX_PATH)
+  const watchers = [chokidar.watch(".", { ...watcherOptions, cwd: argv.directory })]
+  if (useReadmeIndex) {
+    watchers.push(chokidar.watch(README_INDEX_PATH, { ...watcherOptions, cwd: "." }))
+  }
 
   const changes: ChangeEvent[] = []
   let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
@@ -175,28 +198,27 @@ async function startWatching(
       })
     }, 100)
   }
-  watcher
-    .on("add", (fp) => {
-      fp = toPosixPath(fp)
-      if (buildData.ignored(fp)) return
-      changes.push({ path: fp as FilePath, type: "add" })
+  const isCanonicalReadmeSource = (fp: string) =>
+    useReadmeIndex &&
+    (fp === ROOT_INDEX_PATH || (argv.directory === "." && fp === README_INDEX_PATH))
+
+  for (const [watcherIndex, watcher] of watchers.entries()) {
+    const recordChange = (rawPath: string, type: ChangeEvent["type"]) => {
+      const fp = toPosixPath(rawPath)
+      if (watcherIndex === 0 && isCanonicalReadmeSource(fp)) return
+      if (watcherIndex === 0 && buildData.ignored(fp)) return
+      changes.push({ path: fp as FilePath, type })
       scheduleRebuild()
-    })
-    .on("change", (fp) => {
-      fp = toPosixPath(fp)
-      if (buildData.ignored(fp)) return
-      changes.push({ path: fp as FilePath, type: "change" })
-      scheduleRebuild()
-    })
-    .on("unlink", (fp) => {
-      fp = toPosixPath(fp)
-      if (buildData.ignored(fp)) return
-      changes.push({ path: fp as FilePath, type: "delete" })
-      scheduleRebuild()
-    })
+    }
+
+    watcher
+      .on("add", (fp) => recordChange(fp, "add"))
+      .on("change", (fp) => recordChange(fp, "change"))
+      .on("unlink", (fp) => recordChange(fp, "delete"))
+  }
 
   return async () => {
-    await watcher.close()
+    await Promise.all(watchers.map((watcher) => watcher.close()))
   }
 }
 
@@ -228,7 +250,11 @@ async function rebuild(changes: ChangeEvent[], clientRefresh: () => void, buildD
     const pathsToParse: FilePath[] = []
     for (const [fp, type] of Object.entries(changesSinceLastBuild)) {
       if (type === "delete" || path.extname(fp) !== ".md") continue
-      const fullPath = joinSegments(argv.directory, toPosixPath(fp)) as FilePath
+      const relativePath = toPosixPath(fp)
+      const fullPath =
+        path.resolve(argv.directory, relativePath) === path.resolve(README_INDEX_PATH)
+          ? README_INDEX_PATH
+          : (joinSegments(argv.directory, relativePath) as FilePath)
       pathsToParse.push(fullPath)
     }
 

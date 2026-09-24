@@ -18,6 +18,15 @@ import { styleText } from "util"
 export type QuartzMdProcessor = Processor<MDRoot, MDRoot, MDRoot>
 export type QuartzHtmlProcessor = Processor<undefined, MDRoot, HTMLRoot>
 
+const README_INDEX_PATH = "README.md" as FilePath
+const ROOT_INDEX_PATH = "index.md" as FilePath
+
+function prepareReadmeIndex(source: string, fallbackTitle: string): string {
+  const title = source.match(/^#\s+([^\r\n]+)/m)?.[1]?.trim() ?? fallbackTitle
+  const body = source.replace(/^#\s+[^\r\n]*(?:\r?\n)+/, "").trim()
+  return `---\ntitle: ${JSON.stringify(title)}\npublish: true\nquartz-properties: false\n---\n\n${body}`
+}
+
 export function createMdProcessor(ctx: BuildCtx): QuartzMdProcessor {
   const transformers = ctx.cfg.plugins.transformers
 
@@ -90,6 +99,14 @@ export function createFileParser(ctx: BuildCtx, fps: FilePath[]) {
       try {
         const perf = new PerfTimer()
         const file = await read(fp)
+        const isReadmeIndex = fp === README_INDEX_PATH
+
+        if (isReadmeIndex) {
+          file.value = prepareReadmeIndex(
+            file.value.toString(),
+            cfg.configuration.pageTitle ?? "Untitled",
+          )
+        }
 
         // strip leading and trailing whitespace
         file.value = file.value.toString().trim()
@@ -101,7 +118,9 @@ export function createFileParser(ctx: BuildCtx, fps: FilePath[]) {
 
         // base data properties that plugins may use
         file.data.filePath = file.path as FilePath
-        file.data.relativePath = path.posix.relative(argv.directory, file.path) as FilePath
+        file.data.relativePath = isReadmeIndex
+          ? ROOT_INDEX_PATH
+          : (path.posix.relative(argv.directory, file.path) as FilePath)
         file.data.slug = slugifyFilePath(file.data.relativePath)
 
         const ast = processor.parse(file)
